@@ -2,12 +2,25 @@ import { describe, expect, it } from 'vitest'
 import {
   assertDevLogReleaseAlignment,
   createDevLogCapabilities,
+  compareDevLogVersions,
   filterDevLogEntries,
+  formatDevLogDate,
+  formatDevLogLifecycleLabel,
+  getDevLogCollection,
   getDevLogPaginationItems,
   getDevLogSearchTerms,
+  getDevLogTextSegments,
+  getLatestDevLogRelease,
   nextCalendarVersion,
   paginateDevLogEntries,
+  planDevLogRelease,
+  resolveCurrentDevLogRelease,
+  resolveDevLogIncludedCommits,
+  resolveDevLogLifecycle,
+  resolveDevLogSourceLink,
   resolveDevLogSourceMeta,
+  validateDevLogEntries,
+  validateDevLogEntry,
   type DevLogEntry,
 } from '../src'
 
@@ -95,5 +108,92 @@ describe('release alignment', () => {
       previousVersion: '1.1.52',
       previousDependencyVersion: '1.0.1',
     })).toThrow(/without an application release/)
+  })
+})
+
+describe('runtime validation', () => {
+  it('normalizes a rich release while preserving host extensions', () => {
+    expect(validateDevLogEntry({
+      ...release,
+      releasedAt: '2026-08-19T12:30:00-07:00',
+      includedCommits: [{ sha: 'b'.repeat(40), subject: 'Ship the source', committedAt: '2026-08-19T18:00:00Z' }],
+      lifecycle: { status: 'ready', readyAt: '2026-08-19T19:00:00Z' },
+      deploymentId: 'deploy-123',
+    }, { requireAuthor: true, requireCommit: true })).toMatchObject({
+      releasedAt: '2026-08-19T19:30:00.000Z',
+      lifecycle: { status: 'ready', readyAt: '2026-08-19T19:00:00.000Z' },
+      deploymentId: 'deploy-123',
+    })
+  })
+
+  it('rejects impossible dates, malformed commits, duplicate versions, and unsafe author names', () => {
+    expect(validateDevLogEntry({ ...release, date: '2026-02-30' })).toBeNull()
+    expect(validateDevLogEntry({ ...release, commit: 'short' })).toBeNull()
+    expect(validateDevLogEntry({ ...release, author: { name: 'ari@example.com' } }, { rejectAuthorEmail: true })).toBeNull()
+    expect(validateDevLogEntries([release, release])).toBeNull()
+  })
+})
+
+describe('lifecycle and source resolution', () => {
+  it('normalizes lifecycle state and formats a viewer-time-zone label', () => {
+    const lifecycle = resolveDevLogLifecycle({
+      releasedAt: '2026-08-19T18:00:00Z', readyAt: '2026-08-19T19:15:00Z', status: 'building',
+    })
+    expect(lifecycle.status).toBe('ready')
+    expect(formatDevLogLifecycleLabel(lifecycle, { timeZone: 'America/Phoenix' }))
+      .toContain('Ready Aug 19, 2026')
+  })
+
+  it('links every included commit and offers a repository fallback', () => {
+    expect(resolveDevLogIncludedCommits({
+      includedCommits: [{ sha: 'b'.repeat(40), subject: 'Batch update' }],
+    }, 'https://github.com/example/repo/')[0]).toMatchObject({ shortSha: 'bbbbbbb', url: `https://github.com/example/repo/commit/${'b'.repeat(40)}` })
+    expect(resolveDevLogSourceLink({ version: '1.0.1', commit: null }, {
+      repositoryUrl: 'https://github.com/example/repo/', currentVersion: '1.0.2',
+    })).toMatchObject({ kind: 'repository', url: 'https://github.com/example/repo' })
+  })
+})
+
+describe('release selection and planning', () => {
+  const older = { ...release, version: '1.0.1', date: '2026-08-18', commit: 'b'.repeat(40) }
+  it('selects a live release without silently hiding a mismatch', () => {
+    expect(resolveCurrentDevLogRelease([release, older], '1.0.1')).toEqual({ release: older, matched: true })
+    expect(resolveCurrentDevLogRelease([release, older], '9.9.9')).toEqual({ release, matched: false })
+  })
+
+  it('sorts numeric versions and reuses an already-recorded commit', () => {
+    expect(compareDevLogVersions('1.0.10', '1.0.9')).toBeGreaterThan(0)
+    expect(getLatestDevLogRelease([older, release])?.version).toBe('1.0.2')
+    expect(planDevLogRelease({ entries: [release, older], commit: older.commit })).toMatchObject({ kind: 'reuse', version: '1.0.1' })
+  })
+
+  it('plans the next calendar update for a new commit', () => {
+    expect(planDevLogRelease({
+      entries: [release, older], commit: 'c'.repeat(40), releaseAt: '2026-08-20T12:00:00Z',
+    })).toEqual({ kind: 'create', version: '1.0.3', release: null })
+  })
+})
+
+describe('headless presentation helpers', () => {
+  it('formats dates without shifting date-only releases across time zones', () => {
+    expect(formatDevLogDate('2026-08-19', { month: 'long', timeZone: 'America/Phoenix' })).toBe('August 19, 2026')
+  })
+
+  it('returns framework-neutral search highlight segments', () => {
+    expect(getDevLogTextSegments('Audio source metadata', 'audio metadata')).toEqual([
+      { text: 'Audio', match: true },
+      { text: ' source ', match: false },
+      { text: 'metadata', match: true },
+    ])
+  })
+
+  it('builds a complete, clamped collection model', () => {
+    const entries = Array.from({ length: 12 }, (_, index) => ({
+      ...release, version: `1.0.${12 - index}`, title: index < 3 ? 'Audio update' : 'Other update',
+    }))
+    expect(getDevLogCollection(entries, { query: 'audio', page: 99, pageSize: 2 })).toMatchObject({
+      filteredCount: 3, currentPage: 2, totalPages: 2, firstVisible: 3, lastVisible: 3,
+      paginationItems: [1, 2],
+    })
   })
 })

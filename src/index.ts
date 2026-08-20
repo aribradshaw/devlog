@@ -13,6 +13,16 @@ export type DevLogIncludedCommit = {
   committedAt?: string | null
 }
 
+export type DevLogLifecycleStatus = 'building' | 'ready' | 'error' | 'canceled' | 'unknown'
+
+export type DevLogLifecycle = {
+  committedAt: string | null
+  pushObservedAt: string | null
+  buildStartedAt: string | null
+  readyAt: string | null
+  status: DevLogLifecycleStatus
+}
+
 export type DevLogEntry = {
   version: string
   date: string
@@ -23,6 +33,8 @@ export type DevLogEntry = {
   commit?: string | null
   author?: DevLogAuthor | null
   includedCommits?: DevLogIncludedCommit[]
+  releasedAt?: string
+  lifecycle?: DevLogLifecycle | null
   [extension: string]: unknown
 }
 
@@ -48,6 +60,15 @@ export type DevLogFilterOptions<T> = {
   getSearchValues?: (entry: T) => unknown[]
 }
 
+export type DevLogValidationOptions = {
+  requireAuthor?: boolean
+  requireCommit?: boolean
+  requireReleasedAt?: boolean
+  requireSourceSubject?: boolean
+  rejectAuthorEmail?: boolean
+  rejectTicketTitle?: boolean
+}
+
 export type DevLogReleaseAlignmentInput = {
   currentVersion: unknown
   latestDevLogVersion: unknown
@@ -63,10 +84,43 @@ export type DevLogReleaseAlignment = {
   versionChanged: boolean
 }
 
+export type DevLogTextSegment = {
+  text: string
+  match: boolean
+}
+
+export type DevLogCollection<T extends DevLogEntry> = {
+  query: string
+  terms: string[]
+  entries: T[]
+  filteredEntries: T[]
+  visibleEntries: T[]
+  totalEntries: number
+  filteredCount: number
+  currentPage: number
+  totalPages: number
+  firstVisible: number
+  lastVisible: number
+  paginationItems: DevLogPaginationItem[]
+}
+
+export type DevLogResolvedCommit = DevLogIncludedCommit & {
+  shortSha: string
+  url: string
+}
+
+export type DevLogReleasePlan<T extends DevLogEntry> =
+  | { kind: 'reuse'; version: string; release: T }
+  | { kind: 'create'; version: string; release: null }
+
 const FULL_COMMIT_RE = /^[a-f0-9]{40}$/i
 const GITHUB_LOGIN_RE = /^[a-z\d](?:[a-z\d-]{0,37}[a-z\d])?$/i
 const SEMVER_RE = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/
 const DATE_ONLY_RE = /^(\d{4})-(\d{2})-(\d{2})$/
+const ISO_TIMESTAMP_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/
+const EMAIL_RE = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i
+const TICKET_PREFIX_RE = /^\s*(?:\[#?\d+\]|#\d+)\s*/
+const LIFECYCLE_STATUSES = new Set<DevLogLifecycleStatus>(['building', 'ready', 'error', 'canceled', 'unknown'])
 
 export const PUBLIC_DEVLOG_CAPABILITIES: DevLogCapabilities = {
   visibility: 'public',
@@ -93,6 +147,152 @@ export const PRIVATE_DEVLOG_CAPABILITIES: DevLogCapabilities = {
 export function createDevLogCapabilities(overrides: Partial<DevLogCapabilities> = {}): DevLogCapabilities {
   const baseline = overrides.visibility === 'private' ? PRIVATE_DEVLOG_CAPABILITIES : PUBLIC_DEVLOG_CAPABILITIES
   return { ...baseline, ...overrides }
+}
+
+function cleanText(value: unknown): string {
+  return typeof value === 'string' ? value.trim().replace(/\s+/g, ' ') : ''
+}
+
+function normalizeIsoTimestamp(value: unknown): string | null {
+  const text = cleanText(value)
+  if (!text || !ISO_TIMESTAMP_RE.test(text)) return null
+  const timestamp = new Date(text)
+  return Number.isNaN(timestamp.getTime()) ? null : timestamp.toISOString()
+}
+
+function isValidDateOnly(value: unknown): value is string {
+  const match = DATE_ONLY_RE.exec(cleanText(value))
+  if (!match) return false
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const day = Number(match[3])
+  const date = new Date(Date.UTC(year, month - 1, day))
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
+}
+
+export function resolveDevLogLifecycle(input: {
+  releasedAt?: unknown
+  committedAt?: unknown
+  pushObservedAt?: unknown
+  buildStartedAt?: unknown
+  readyAt?: unknown
+  status?: unknown
+} = {}): DevLogLifecycle {
+  const releasedAt = normalizeIsoTimestamp(input.releasedAt)
+  const committedAt = normalizeIsoTimestamp(input.committedAt)
+  const pushObservedAt = normalizeIsoTimestamp(input.pushObservedAt)
+  const explicitBuildStartedAt = normalizeIsoTimestamp(input.buildStartedAt)
+  const buildStartedAt = explicitBuildStartedAt || releasedAt
+  const readyAt = normalizeIsoTimestamp(input.readyAt)
+  const requestedStatus = cleanText(input.status).toLowerCase() as DevLogLifecycleStatus
+
+  let status: DevLogLifecycleStatus = 'unknown'
+  if (readyAt) status = 'ready'
+  else if (requestedStatus === 'error' || requestedStatus === 'canceled') status = requestedStatus
+  else if (requestedStatus === 'building' || requestedStatus === 'ready' || explicitBuildStartedAt) status = 'building'
+
+  return { committedAt, pushObservedAt, buildStartedAt, readyAt, status }
+}
+
+export function validateDevLogEntry(
+  value: unknown,
+  options: DevLogValidationOptions = {},
+): DevLogEntry | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const candidate = value as Partial<DevLogEntry>
+  const version = cleanText(candidate.version)
+  const date = cleanText(candidate.date)
+  const title = cleanText(candidate.title)
+  const notes = Array.isArray(candidate.notes) ? candidate.notes.map(cleanText) : []
+  const summary = candidate.summary == null ? undefined : cleanText(candidate.summary)
+  const sourceSubject = candidate.sourceSubject == null ? undefined : cleanText(candidate.sourceSubject)
+  const commit = candidate.commit == null ? null : cleanText(candidate.commit).toLowerCase()
+  const releasedAt = candidate.releasedAt == null
+    ? undefined
+    : normalizeIsoTimestamp(candidate.releasedAt) || undefined
+
+  if (!SEMVER_RE.test(version) || !isValidDateOnly(date) || !title) return null
+  if (!notes.length || notes.some((note) => !note)) return null
+  if (candidate.summary != null && !summary) return null
+  if (candidate.sourceSubject != null && !sourceSubject) return null
+  if (options.requireSourceSubject && !sourceSubject) return null
+  if (options.rejectTicketTitle && TICKET_PREFIX_RE.test(title)) return null
+  if (commit !== null && !FULL_COMMIT_RE.test(commit)) return null
+  if (options.requireCommit && !commit) return null
+  if (candidate.releasedAt != null && !releasedAt) return null
+  if (options.requireReleasedAt && !releasedAt) return null
+
+  let author: DevLogAuthor | null | undefined
+  if (candidate.author != null) {
+    if (typeof candidate.author !== 'object' || Array.isArray(candidate.author)) return null
+    const name = cleanText(candidate.author.name)
+    const githubLogin = candidate.author.githubLogin == null ? null : cleanText(candidate.author.githubLogin)
+    if (!name || (githubLogin && !GITHUB_LOGIN_RE.test(githubLogin))) return null
+    if (options.rejectAuthorEmail && EMAIL_RE.test(name)) return null
+    author = {
+      ...candidate.author,
+      name,
+      githubLogin,
+      avatarUrl: candidate.author.avatarUrl || null,
+      profileUrl: candidate.author.profileUrl || null,
+    }
+  } else if (options.requireAuthor) return null
+
+  let includedCommits: DevLogIncludedCommit[] | undefined
+  if (candidate.includedCommits != null) {
+    if (!Array.isArray(candidate.includedCommits)) return null
+    includedCommits = []
+    for (const raw of candidate.includedCommits) {
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+      const sha = cleanText(raw.sha).toLowerCase()
+      const subject = cleanText(raw.subject)
+      const committedAt = raw.committedAt == null ? null : normalizeIsoTimestamp(raw.committedAt)
+      if (!FULL_COMMIT_RE.test(sha) || !subject || (raw.committedAt != null && !committedAt)) return null
+      includedCommits.push({ sha, subject, committedAt })
+    }
+  }
+
+  let lifecycle: DevLogLifecycle | null | undefined
+  if (candidate.lifecycle != null) {
+    if (typeof candidate.lifecycle !== 'object' || Array.isArray(candidate.lifecycle)) return null
+    const requestedStatus = cleanText(candidate.lifecycle.status).toLowerCase() as DevLogLifecycleStatus
+    if (!LIFECYCLE_STATUSES.has(requestedStatus)) return null
+    for (const timestamp of ['committedAt', 'pushObservedAt', 'buildStartedAt', 'readyAt'] as const) {
+      if (candidate.lifecycle[timestamp] != null && !normalizeIsoTimestamp(candidate.lifecycle[timestamp])) return null
+    }
+    lifecycle = resolveDevLogLifecycle({ ...candidate.lifecycle, releasedAt })
+  }
+
+  return {
+    ...candidate,
+    version,
+    date,
+    title,
+    notes,
+    ...(summary !== undefined ? { summary } : {}),
+    ...(sourceSubject !== undefined ? { sourceSubject } : {}),
+    commit,
+    ...(releasedAt !== undefined ? { releasedAt } : {}),
+    ...(author !== undefined ? { author } : {}),
+    ...(includedCommits !== undefined ? { includedCommits } : {}),
+    ...(lifecycle !== undefined ? { lifecycle } : {}),
+  }
+}
+
+export function validateDevLogEntries(
+  value: unknown,
+  options: DevLogValidationOptions = {},
+): DevLogEntry[] | null {
+  if (!Array.isArray(value) || !value.length) return null
+  const entries: DevLogEntry[] = []
+  const versions = new Set<string>()
+  for (const item of value) {
+    const entry = validateDevLogEntry(item, options)
+    if (!entry || versions.has(entry.version)) return null
+    versions.add(entry.version)
+    entries.push(entry)
+  }
+  return entries
 }
 
 export function authorInitials(name: string): string {
@@ -148,6 +348,125 @@ export function resolveDevLogSourceMeta(
   }
 }
 
+export function resolveDevLogSourceLink(
+  entry: Pick<DevLogEntry, 'version' | 'commit'>,
+  options: { repositoryUrl: string; currentVersion: string; buildCommit?: string },
+): { kind: 'commit' | 'repository'; url: string; sha: string | null; shortSha: string | null } {
+  const repositoryUrl = options.repositoryUrl.replace(/\/$/, '')
+  const sha = resolveDevLogCommit(entry, options.currentVersion, options.buildCommit)
+  return sha
+    ? { kind: 'commit', url: `${repositoryUrl}/commit/${sha}`, sha, shortSha: sha.slice(0, 7) }
+    : { kind: 'repository', url: repositoryUrl, sha: null, shortSha: null }
+}
+
+export function resolveDevLogIncludedCommits(
+  entry: Pick<DevLogEntry, 'includedCommits'>,
+  repositoryUrl: string,
+): DevLogResolvedCommit[] {
+  const base = repositoryUrl.replace(/\/$/, '')
+  return (entry.includedCommits || []).filter((commit) => FULL_COMMIT_RE.test(commit.sha)).map((commit) => ({
+    ...commit,
+    sha: commit.sha.toLowerCase(),
+    shortSha: commit.sha.slice(0, 7),
+    url: `${base}/commit/${commit.sha.toLowerCase()}`,
+  }))
+}
+
+export function resolveCurrentDevLogRelease<T extends DevLogEntry>(
+  entries: T[],
+  liveVersion?: string | null,
+): { release: T | null; matched: boolean } {
+  const release = liveVersion ? entries.find((entry) => entry.version === liveVersion) : undefined
+  return { release: release || entries[0] || null, matched: Boolean(release) }
+}
+
+export function compareDevLogVersions(left: string, right: string): number {
+  const leftMatch = SEMVER_RE.exec(cleanText(left))
+  const rightMatch = SEMVER_RE.exec(cleanText(right))
+  if (!leftMatch || !rightMatch) throw new Error('DevLog versions must use three numeric segments.')
+  for (let index = 1; index <= 3; index += 1) {
+    const difference = Number(leftMatch[index]) - Number(rightMatch[index])
+    if (difference) return difference
+  }
+  return 0
+}
+
+export function sortDevLogEntries<T extends DevLogEntry>(entries: T[], direction: 'asc' | 'desc' = 'desc'): T[] {
+  const multiplier = direction === 'asc' ? 1 : -1
+  return [...entries].sort((left, right) => compareDevLogVersions(left.version, right.version) * multiplier)
+}
+
+export function getLatestDevLogRelease<T extends DevLogEntry>(entries: T[]): T | null {
+  return sortDevLogEntries(entries)[0] || null
+}
+
+export function planDevLogRelease<T extends DevLogEntry>(input: {
+  entries: T[]
+  commit?: string | null
+  releaseAt?: string | Date
+  timeZone?: string
+  baselineVersion?: string
+}): DevLogReleasePlan<T> {
+  const commit = cleanText(input.commit).toLowerCase()
+  if (commit && !FULL_COMMIT_RE.test(commit)) throw new Error('A release commit must be a full 40-character SHA.')
+  const existing = commit
+    ? input.entries.find((entry) => cleanText(entry.commit).toLowerCase() === commit)
+    : undefined
+  if (existing) return { kind: 'reuse', version: existing.version, release: existing }
+
+  const latest = getLatestDevLogRelease(input.entries)
+  const baselineVersion = cleanText(input.baselineVersion) || '1.0.0'
+  if (!SEMVER_RE.test(baselineVersion)) throw new Error(`Invalid baseline version: ${baselineVersion}`)
+  const version = latest
+    ? nextCalendarVersion(latest.version, {
+      latestReleaseDate: latest.releasedAt || latest.date,
+      releaseAt: input.releaseAt,
+      timeZone: input.timeZone,
+    })
+    : baselineVersion
+  return { kind: 'create', version, release: null }
+}
+
+export function formatDevLogDate(
+  value: string | Date,
+  options: Intl.DateTimeFormatOptions & { locale?: string } = {},
+): string {
+  const { locale = 'en-US', ...formatOptions } = options
+  const date = value instanceof Date
+    ? value
+    : isValidDateOnly(value) ? new Date(`${value}T12:00:00Z`) : new Date(value)
+  if (Number.isNaN(date.getTime())) return String(value)
+  return new Intl.DateTimeFormat(locale, {
+    month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC', ...formatOptions,
+  }).format(date)
+}
+
+export function formatDevLogDateTime(
+  value: string | Date,
+  options: Intl.DateTimeFormatOptions & { locale?: string } = {},
+): string {
+  const { locale = 'en-US', ...formatOptions } = options
+  const date = value instanceof Date ? value : new Date(value)
+  if (Number.isNaN(date.getTime())) return String(value)
+  return new Intl.DateTimeFormat(locale, {
+    month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit',
+    timeZone: 'UTC', timeZoneName: 'short', ...formatOptions,
+  }).format(date)
+}
+
+export function formatDevLogLifecycleLabel(
+  lifecycle: DevLogLifecycle,
+  options: Intl.DateTimeFormatOptions & { locale?: string } = {},
+): string {
+  const stamp = lifecycle.readyAt || lifecycle.buildStartedAt
+  const when = stamp ? formatDevLogDateTime(stamp, options) : 'time unavailable'
+  if (lifecycle.status === 'ready') return `Ready ${when}`
+  if (lifecycle.status === 'building') return `Building since ${when}`
+  if (lifecycle.status === 'error') return `Failed ${when}`
+  if (lifecycle.status === 'canceled') return `Canceled ${when}`
+  return `Recorded ${when}`
+}
+
 export function getDevLogSearchTerms(value: unknown): string[] {
   return [...new Set(String(value || '').trim().toLowerCase().split(/\s+/).filter(Boolean))]
 }
@@ -162,7 +481,14 @@ function defaultSearchValues(entry: DevLogEntry): unknown[] {
     entry.commit || '',
     entry.author?.name || '',
     entry.author?.githubLogin || '',
+    entry.releasedAt || '',
     ...entry.notes,
+    ...(entry.includedCommits || []).flatMap((commit) => [commit.sha, commit.subject, commit.committedAt || '']),
+    entry.lifecycle?.status || '',
+    entry.lifecycle?.committedAt || '',
+    entry.lifecycle?.pushObservedAt || '',
+    entry.lifecycle?.buildStartedAt || '',
+    entry.lifecycle?.readyAt || '',
   ]
 }
 
@@ -186,6 +512,51 @@ export function paginateDevLogEntries<T>(entries: T[], page: number, pageSize = 
   const safePage = Math.max(1, Number(page) || 1)
   const safePageSize = Math.max(1, Number(pageSize) || 10)
   return entries.slice((safePage - 1) * safePageSize, safePage * safePageSize)
+}
+
+export function getDevLogTextSegments(value: unknown, query: unknown): DevLogTextSegment[] {
+  const text = String(value || '')
+  const terms = Array.isArray(query)
+    ? getDevLogSearchTerms(query.join(' '))
+    : getDevLogSearchTerms(query)
+  if (!text || !terms.length) return [{ text, match: false }]
+  const escaped = terms.sort((left, right) => right.length - left.length)
+    .map((term) => term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  const pattern = new RegExp(`(${escaped.join('|')})`, 'gi')
+  const matches = new Set(terms.map((term) => term.toLowerCase()))
+  return text.split(pattern).filter(Boolean).map((part) => ({
+    text: part,
+    match: matches.has(part.toLowerCase()),
+  }))
+}
+
+export function getDevLogCollection<T extends DevLogEntry>(
+  entries: T[],
+  options: DevLogFilterOptions<T> & { query?: unknown; page?: number; pageSize?: number } = {},
+): DevLogCollection<T> {
+  const query = String(options.query || '').trim()
+  const terms = getDevLogSearchTerms(query)
+  const filteredEntries = filterDevLogEntries(entries, query, options)
+  const pageSize = Math.max(1, Number(options.pageSize) || 10)
+  const totalPages = Math.max(1, Math.ceil(filteredEntries.length / pageSize))
+  const currentPage = Math.min(Math.max(1, Number(options.page) || 1), totalPages)
+  const visibleEntries = paginateDevLogEntries(filteredEntries, currentPage, pageSize)
+  const firstVisible = filteredEntries.length ? (currentPage - 1) * pageSize + 1 : 0
+  const lastVisible = Math.min(currentPage * pageSize, filteredEntries.length)
+  return {
+    query,
+    terms,
+    entries,
+    filteredEntries,
+    visibleEntries,
+    totalEntries: entries.length,
+    filteredCount: filteredEntries.length,
+    currentPage,
+    totalPages,
+    firstVisible,
+    lastVisible,
+    paginationItems: getDevLogPaginationItems(currentPage, totalPages),
+  }
 }
 
 export function getDevLogPaginationItems(currentPage: number, totalPages: number): DevLogPaginationItem[] {

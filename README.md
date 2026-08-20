@@ -146,6 +146,91 @@ assertDevLogReleaseAlignment({
 
 The dependency comparison is optional. When previous values are supplied, changing the shared DevLog package without advancing the host application release throws an error.
 
+## Automatic production releases
+
+Production automation is opt-in. Add `devlog.config.json` to a consuming project:
+
+The CLI and the Node-only programmatic API live at `@aribradshaw/devlog/automation`, keeping the main package entry browser-safe.
+
+```json
+{
+  "enabled": true,
+  "failClosed": true,
+  "productionBranches": ["main"],
+  "ignoreCommitPrefixes": ["chore(release):"],
+  "registryPath": "config/devlog-releases.json",
+  "manifestPaths": ["package.json", "package-lock.json"],
+  "versionFilePaths": ["src/lib/release.ts"],
+  "timeZone": "America/Phoenix",
+  "baselineVersion": "1.0.1",
+  "author": {
+    "name": "Ari Bradshaw",
+    "githubLogin": "aribradshaw"
+  }
+}
+```
+
+Set `enabled` to `false` to retain validation and presentation helpers without automatic iteration. When enabled, run the recorder before a production build:
+
+```sh
+npx devlog-release prepare --production
+npx devlog-release check --production
+```
+
+`prepare` performs one idempotent release transaction:
+
+- Requires an approved production branch and a full source commit SHA.
+- Reuses a release already recorded for that commit.
+- Ignores generated `chore(release):` commits so automation cannot loop.
+- Otherwise calculates the next Phoenix-calendar version.
+- Updates each configured manifest and prepends the matching DevLog entry.
+- Synchronizes explicit source files that embed the previous version.
+- Replaces each registry and manifest file atomically.
+
+`check` is the deployment gate. With `failClosed: true`, production cannot continue unless the source commit, newest DevLog entry, and manifest version all match.
+
+The recorder recognizes `DEVLOG_*`, GitHub Actions, Vercel, and Railway commit environment variables. A provider workflow should set `DEVLOG_PRODUCTION=true` explicitly. For GitHub Actions, commit the generated metadata with a bot-only `chore(release):` commit and skip the recorder for that bot commit to prevent a release loop.
+
+Example GitHub Actions integration:
+
+```yaml
+permissions:
+  contents: write
+
+jobs:
+  release-and-deploy:
+    if: github.actor != 'github-actions[bot]'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx devlog-release prepare --production
+        env:
+          DEVLOG_PRODUCTION: 'true'
+          DEVLOG_BRANCH: ${{ github.ref_name }}
+          DEVLOG_COMMIT_SHA: ${{ github.sha }}
+          DEVLOG_COMMIT_SUBJECT: ${{ github.event.head_commit.message }}
+          DEVLOG_AUTHOR_NAME: ${{ github.event.head_commit.author.name }}
+      - run: npx devlog-release check --production
+        env:
+          DEVLOG_PRODUCTION: 'true'
+          DEVLOG_BRANCH: ${{ github.ref_name }}
+          DEVLOG_COMMIT_SHA: ${{ github.sha }}
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json config/devlog-releases.json
+          git diff --cached --quiet || git commit -m "chore(release): publish DevLog"
+          git push origin "HEAD:${{ github.ref_name }}"
+```
+
+The host still owns release copy, storage, rendering, and deployment. The automation rule only guarantees that an enabled production update cannot silently skip its version and DevLog record.
+
 ## License
 
 MIT

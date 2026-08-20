@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   createDevLogCapabilities,
   filterDevLogEntries,
+  getDevLogPaginationItems,
+  getDevLogSearchTerms,
   nextCalendarVersion,
   paginateDevLogEntries,
   resolveDevLogSourceMeta,
@@ -48,7 +50,17 @@ describe('source metadata', () => {
 describe('collection helpers', () => {
   const entries = [release, { ...release, version: '1.0.1', title: 'First release', summary: 'Initial version.', notes: ['Published.'] }]
   it('filters across release and source metadata', () => expect(filterDevLogEntries(entries, 'ari source')).toEqual([release]))
+  it('deduplicates normalized search terms', () => expect(getDevLogSearchTerms('  Ari ari SOURCE ')).toEqual(['ari', 'source']))
+  it('supports project-specific search fields without prescribing UI or schema', () => {
+    expect(filterDevLogEntries(entries, 'Aug 19', {
+      getSearchValues: (entry) => [entry.version === '1.0.2' ? 'Aug 19, 2026' : '', entry.title],
+    })).toEqual([release])
+  })
   it('paginates without a UI framework', () => expect(paginateDevLogEntries(entries, 2, 1)).toEqual([entries[1]]))
+  it('builds the established compact pagination window', () => {
+    expect(getDevLogPaginationItems(6, 12)).toEqual([1, 'ellipsis', 5, 6, 7, 'ellipsis', 12])
+    expect(getDevLogPaginationItems(1, 3)).toEqual([1, 2, 3])
+  })
 })
 
 describe('Phoenix calendar versioning', () => {

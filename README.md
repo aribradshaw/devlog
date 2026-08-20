@@ -2,7 +2,7 @@
 
 One DevLog engine, any product design.
 
-`@aribradshaw/devlog` is a headless TypeScript package for software release histories. It shares release types, GitHub author and commit resolution, capability policies, search, pagination, and calendar versioning without imposing React, a stylesheet, a database, or a public/private access model.
+`@aribradshaw/devlog` is a headless TypeScript package for software release histories. It shares release types, GitHub author and commit resolution, capability policies, configurable search, compact pagination windows, and calendar versioning without imposing React, a stylesheet, a database, or a public/private access model.
 
 ## Why headless
 

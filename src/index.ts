@@ -42,6 +42,12 @@ export type DevLogSourceMeta = {
   commit: { sha: string; shortSha: string; url: string } | null
 }
 
+export type DevLogPaginationItem = number | 'ellipsis'
+
+export type DevLogFilterOptions<T> = {
+  getSearchValues?: (entry: T) => unknown[]
+}
+
 const FULL_COMMIT_RE = /^[a-f0-9]{40}$/i
 const GITHUB_LOGIN_RE = /^[a-z\d](?:[a-z\d-]{0,37}[a-z\d])?$/i
 const SEMVER_RE = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/
@@ -127,13 +133,36 @@ export function resolveDevLogSourceMeta(
   }
 }
 
-export function filterDevLogEntries<T extends DevLogEntry>(entries: T[], query: unknown): T[] {
-  const terms = String(query || '').trim().toLowerCase().split(/\s+/).filter(Boolean)
+export function getDevLogSearchTerms(value: unknown): string[] {
+  return [...new Set(String(value || '').trim().toLowerCase().split(/\s+/).filter(Boolean))]
+}
+
+function defaultSearchValues(entry: DevLogEntry): unknown[] {
+  return [
+    entry.version,
+    entry.date,
+    entry.title,
+    entry.summary || '',
+    entry.sourceSubject || '',
+    entry.commit || '',
+    entry.author?.name || '',
+    entry.author?.githubLogin || '',
+    ...entry.notes,
+  ]
+}
+
+export function filterDevLogEntries<T extends DevLogEntry>(
+  entries: T[],
+  query: unknown,
+  options: DevLogFilterOptions<T> = {},
+): T[] {
+  const terms = getDevLogSearchTerms(query)
   if (!terms.length) return entries
   return entries.filter((entry) => {
-    const searchable = [entry.version, entry.date, entry.title, entry.summary || '', entry.sourceSubject || '',
-      entry.commit || '', entry.author?.name || '', entry.author?.githubLogin || '', ...entry.notes]
-      .join(' ').toLowerCase()
+    const searchable = (options.getSearchValues?.(entry) || defaultSearchValues(entry))
+      .map((value) => String(value || ''))
+      .join(' ')
+      .toLowerCase()
     return terms.every((term) => searchable.includes(term))
   })
 }
@@ -142,6 +171,21 @@ export function paginateDevLogEntries<T>(entries: T[], page: number, pageSize = 
   const safePage = Math.max(1, Number(page) || 1)
   const safePageSize = Math.max(1, Number(pageSize) || 10)
   return entries.slice((safePage - 1) * safePageSize, safePage * safePageSize)
+}
+
+export function getDevLogPaginationItems(currentPage: number, totalPages: number): DevLogPaginationItem[] {
+  if (totalPages <= 7) {
+    return Array.from({ length: Math.max(0, totalPages) }, (_, index) => index + 1)
+  }
+  const visiblePages = [...new Set([1, totalPages, currentPage - 1, currentPage, currentPage + 1])]
+    .filter((page) => page >= 1 && page <= totalPages)
+    .sort((left, right) => left - right)
+  const items: DevLogPaginationItem[] = []
+  visiblePages.forEach((page, index) => {
+    if (index > 0 && page - (visiblePages[index - 1] || 0) > 1) items.push('ellipsis')
+    items.push(page)
+  })
+  return items
 }
 
 function calendarMonth(value: string | Date, timeZone: string): { year: number; month: number } {

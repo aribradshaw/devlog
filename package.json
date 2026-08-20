@@ -1,6 +1,6 @@
 {
   "name": "@aribradshaw/devlog",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Headless, project-neutral DevLog primitives for public and private software products.",
   "type": "module",
   "sideEffects": false,

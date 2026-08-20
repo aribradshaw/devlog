@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  assertDevLogReleaseAlignment,
   createDevLogCapabilities,
   filterDevLogEntries,
   getDevLogPaginationItems,
@@ -67,4 +68,32 @@ describe('Phoenix calendar versioning', () => {
   it('increments within a month', () => expect(nextCalendarVersion('1.0.6', { latestReleaseDate: '2026-08-01', releaseAt: '2026-08-19' })).toBe('1.0.7'))
   it('advances on a new month', () => expect(nextCalendarVersion('1.0.6', { latestReleaseDate: '2026-08-19', releaseAt: '2026-09-01' })).toBe('1.1.1'))
   it('advances on a new year', () => expect(nextCalendarVersion('1.4.8', { latestReleaseDate: '2026-12-01', releaseAt: '2027-01-01' })).toBe('2.0.1'))
+})
+
+describe('release alignment', () => {
+  it('accepts an aligned application and DevLog release', () => {
+    expect(assertDevLogReleaseAlignment({
+      currentVersion: '1.1.53',
+      latestDevLogVersion: '1.1.53',
+      dependencyVersion: '1.0.2',
+      previousVersion: '1.1.52',
+      previousDependencyVersion: '1.0.1',
+    })).toMatchObject({ dependencyChanged: true, versionChanged: true })
+  })
+
+  it('rejects a stale DevLog registry', () => {
+    expect(() => assertDevLogReleaseAlignment({
+      currentVersion: '1.1.53', latestDevLogVersion: '1.1.52',
+    })).toThrow(/does not match latest DevLog version/)
+  })
+
+  it('rejects a dependency migration without an application release', () => {
+    expect(() => assertDevLogReleaseAlignment({
+      currentVersion: '1.1.52',
+      latestDevLogVersion: '1.1.52',
+      dependencyVersion: '1.0.2',
+      previousVersion: '1.1.52',
+      previousDependencyVersion: '1.0.1',
+    })).toThrow(/without an application release/)
+  })
 })

@@ -74,6 +74,24 @@ const next = nextCalendarVersion('1.0.6', {
 
 Import behavior, not appearance. A successful migration should be visually indistinguishable before and after.
 
+## Release alignment
+
+Consumers can fail a build when their application version, latest DevLog entry, and DevLog dependency migration drift apart:
+
+```ts
+import { assertDevLogReleaseAlignment } from '@aribradshaw/devlog'
+
+assertDevLogReleaseAlignment({
+  currentVersion: packageJson.version,
+  latestDevLogVersion: releases[0].version,
+  dependencyVersion: packageJson.dependencies['@aribradshaw/devlog'],
+  previousVersion,
+  previousDependencyVersion,
+})
+```
+
+The dependency comparison is optional. When previous values are supplied, changing the shared DevLog package without advancing the host application release throws an error.
+
 ## License
 
 MIT

@@ -48,6 +48,21 @@ export type DevLogFilterOptions<T> = {
   getSearchValues?: (entry: T) => unknown[]
 }
 
+export type DevLogReleaseAlignmentInput = {
+  currentVersion: unknown
+  latestDevLogVersion: unknown
+  dependencyVersion?: unknown
+  previousVersion?: unknown
+  previousDependencyVersion?: unknown
+}
+
+export type DevLogReleaseAlignment = {
+  currentVersion: string
+  latestDevLogVersion: string
+  dependencyChanged: boolean
+  versionChanged: boolean
+}
+
 const FULL_COMMIT_RE = /^[a-f0-9]{40}$/i
 const GITHUB_LOGIN_RE = /^[a-z\d](?:[a-z\d-]{0,37}[a-z\d])?$/i
 const SEMVER_RE = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/
@@ -186,6 +201,39 @@ export function getDevLogPaginationItems(currentPage: number, totalPages: number
     items.push(page)
   })
   return items
+}
+
+export function assertDevLogReleaseAlignment(
+  input: DevLogReleaseAlignmentInput,
+): DevLogReleaseAlignment {
+  const currentVersion = String(input.currentVersion || '').trim()
+  const latestDevLogVersion = String(input.latestDevLogVersion || '').trim()
+  if (!SEMVER_RE.test(currentVersion)) {
+    throw new Error(`Invalid current application version: ${currentVersion || '(empty)'}`)
+  }
+  if (!SEMVER_RE.test(latestDevLogVersion)) {
+    throw new Error(`Invalid latest DevLog version: ${latestDevLogVersion || '(empty)'}`)
+  }
+  if (currentVersion !== latestDevLogVersion) {
+    throw new Error(
+      `Application version ${currentVersion} does not match latest DevLog version ${latestDevLogVersion}.`,
+    )
+  }
+
+  const dependencyVersion = String(input.dependencyVersion || '').trim()
+  const previousDependencyVersion = String(input.previousDependencyVersion || '').trim()
+  const previousVersion = String(input.previousVersion || '').trim()
+  const dependencyChanged = Boolean(
+    dependencyVersion && previousDependencyVersion && dependencyVersion !== previousDependencyVersion,
+  )
+  const versionChanged = Boolean(previousVersion && currentVersion !== previousVersion)
+  if (dependencyChanged && !versionChanged) {
+    throw new Error(
+      `DevLog dependency changed from ${previousDependencyVersion} to ${dependencyVersion} without an application release.`,
+    )
+  }
+
+  return { currentVersion, latestDevLogVersion, dependencyChanged, versionChanged }
 }
 
 function calendarMonth(value: string | Date, timeZone: string): { year: number; month: number } {

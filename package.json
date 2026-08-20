@@ -1,6 +1,6 @@
 {
   "name": "@aribradshaw/devlog",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Headless, project-neutral DevLog primitives for public and private software products.",
   "type": "module",
   "sideEffects": false,
@@ -20,7 +20,9 @@
     "check": "tsc --noEmit",
     "test": "vitest run",
     "smoke:package": "node -e \"const api = require('./dist/index.cjs'); if (api.getDevLogPaginationItems(6, 12).length !== 7) process.exit(1)\"",
-    "prepublishOnly": "npm run check && npm test && npm run build && npm run smoke:package"
+    "verify:package": "node scripts/verify-package-consumers.mjs",
+    "verify": "npm run check && npm test && npm run build && npm run smoke:package && npm run verify:package",
+    "prepublishOnly": "npm run verify"
   },
   "keywords": ["devlog", "changelog", "release-notes", "github", "headless"],
   "author": "Ari Bradshaw",

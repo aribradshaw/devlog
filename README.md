@@ -23,6 +23,12 @@ The package owns portable logic. Each host keeps full control of:
 npm install @aribradshaw/devlog
 ```
 
+## Bradshaw Versioning (draft)
+
+[Bradshaw Versioning 1.0, draft specification](https://github.com/aribradshaw/devlog/blob/main/docs/bradshaw-versioning.md) proposes a permanent `YEAR.MONTH.UPDATE` identity for every production commit, with compatibility and deployment status recorded separately. It builds on [Calendar Versioning (CalVer)](https://calver.org/) for continuously shipped, AI-assisted software.
+
+The draft allows zero-based or one-based project years, or full calendar years; it uses calendar months `1` through `12`. DevLog remains versioning-scheme agnostic. This is a documentation proposal, not a new configuration option or a change to the current `nextCalendarVersion` helper. Existing consumers must not migrate implicitly. See the specification's implementation status and migration requirements before adopting it.
+
 ## Source metadata
 
 ```ts

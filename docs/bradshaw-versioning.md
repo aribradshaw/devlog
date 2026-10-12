@@ -1,7 +1,9 @@
 # Bradshaw Versioning 1.0 (draft)
 
-Author: Ari Bradshaw  
-Status: Draft for review, not an implemented DevLog compatibility guarantee  
+Author: Ari Bradshaw
+
+Status: Draft for review, not an implemented DevLog compatibility guarantee
+
 Draft date: October 12, 2026
 
 Bradshaw Versioning gives every production commit a permanent, chronological identity, with compatibility and deployment status made explicit.

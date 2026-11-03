@@ -26,9 +26,11 @@ try {
 
   writeFileSync(path.join(consumerWorkspace, 'esm.mjs'), [
     "import { assertDevLogReleaseAlignment, getDevLogCollection, validateDevLogEntry } from '@aribradshaw/devlog'",
-    "import { resolveDevLogAutomationConfig } from '@aribradshaw/devlog/automation'",
+    "import { createMemoryReleaseStore, recordDeployRelease, resolveDevLogAutomationConfig } from '@aribradshaw/devlog/automation'",
     "assertDevLogReleaseAlignment({ currentVersion: '1.0.1', latestDevLogVersion: '1.0.1' })",
     "if (resolveDevLogAutomationConfig().enabled !== false) process.exit(1)",
+    "const deployed = await recordDeployRelease({ store: createMemoryReleaseStore(), commitSha: 'c'.repeat(40), commits: [], releasedAt: '2026-10-05T17:00:00Z', headCommit: { subject: 'Packed deploy' }, scheme: { originYear: 2026, yearMode: 'one', timeZone: 'America/Phoenix' } })",
+    "if (deployed.status !== 'recorded' || deployed.release.version !== '1.10.1') process.exit(1)",
     "const release = validateDevLogEntry({ version: '1.0.1', date: '2026-08-19', title: 'Packed', notes: ['Verified.'] })",
     "if (!release || getDevLogCollection([release]).visibleEntries.length !== 1) process.exit(1)",
   ].join('\n'))

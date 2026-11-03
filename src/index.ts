@@ -11,6 +11,25 @@ export type DevLogIncludedCommit = {
   sha: string
   subject: string
   committedAt?: string | null
+  authorName?: string | null
+  authorLogin?: string | null
+}
+
+export type DevLogCompatibility = 'compatible' | 'action-required' | 'breaking'
+
+export type DevLogDeployment = {
+  provider: string | null
+  id: string | null
+}
+
+export type BradshawYearMode = 'zero' | 'one' | 'calendar'
+
+export type BradshawVersionScheme = {
+  /** Calendar year the project started. Required for the zero- and one-based year modes. */
+  originYear?: number
+  yearMode: BradshawYearMode
+  /** IANA time zone used for month and year boundaries, such as America/Phoenix. */
+  timeZone: string
 }
 
 export type DevLogLifecycleStatus = 'building' | 'ready' | 'error' | 'canceled' | 'unknown'
@@ -35,6 +54,9 @@ export type DevLogEntry = {
   includedCommits?: DevLogIncludedCommit[]
   releasedAt?: string
   lifecycle?: DevLogLifecycle | null
+  compatibility?: DevLogCompatibility
+  action?: string | null
+  deployment?: DevLogDeployment | null
   [extension: string]: unknown
 }
 
@@ -121,6 +143,7 @@ const ISO_TIMESTAMP_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-
 const EMAIL_RE = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i
 const TICKET_PREFIX_RE = /^\s*(?:\[#?\d+\]|#\d+)\s*/
 const LIFECYCLE_STATUSES = new Set<DevLogLifecycleStatus>(['building', 'ready', 'error', 'canceled', 'unknown'])
+const COMPATIBILITY_VALUES = new Set<DevLogCompatibility>(['compatible', 'action-required', 'breaking'])
 
 export const PUBLIC_DEVLOG_CAPABILITIES: DevLogCapabilities = {
   visibility: 'public',
@@ -248,7 +271,17 @@ export function validateDevLogEntry(
       const subject = cleanText(raw.subject)
       const committedAt = raw.committedAt == null ? null : normalizeIsoTimestamp(raw.committedAt)
       if (!FULL_COMMIT_RE.test(sha) || !subject || (raw.committedAt != null && !committedAt)) return null
-      includedCommits.push({ sha, subject, committedAt })
+      const authorName = raw.authorName == null ? undefined : cleanText(raw.authorName) || null
+      const authorLogin = raw.authorLogin == null ? undefined : cleanText(raw.authorLogin) || null
+      if (authorLogin && !GITHUB_LOGIN_RE.test(authorLogin)) return null
+      if (authorName && options.rejectAuthorEmail && EMAIL_RE.test(authorName)) return null
+      includedCommits.push({
+        sha,
+        subject,
+        committedAt,
+        ...(authorName !== undefined ? { authorName } : {}),
+        ...(authorLogin !== undefined ? { authorLogin } : {}),
+      })
     }
   }
 
@@ -261,6 +294,27 @@ export function validateDevLogEntry(
       if (candidate.lifecycle[timestamp] != null && !normalizeIsoTimestamp(candidate.lifecycle[timestamp])) return null
     }
     lifecycle = resolveDevLogLifecycle({ ...candidate.lifecycle, releasedAt })
+  }
+
+  let compatibility: DevLogCompatibility | undefined
+  if (candidate.compatibility != null) {
+    compatibility = cleanText(candidate.compatibility).toLowerCase() as DevLogCompatibility
+    if (!COMPATIBILITY_VALUES.has(compatibility)) return null
+  }
+  let action: string | null | undefined
+  if (candidate.action !== undefined) {
+    if (candidate.action !== null && typeof candidate.action !== 'string') return null
+    action = cleanText(candidate.action) || null
+  }
+  let deployment: DevLogDeployment | null | undefined
+  if (candidate.deployment !== undefined) {
+    if (candidate.deployment === null) deployment = null
+    else {
+      if (typeof candidate.deployment !== 'object' || Array.isArray(candidate.deployment)) return null
+      const { provider, id } = candidate.deployment
+      if ((provider != null && typeof provider !== 'string') || (id != null && typeof id !== 'string')) return null
+      deployment = { provider: cleanText(provider) || null, id: cleanText(id) || null }
+    }
   }
 
   return {
@@ -276,6 +330,9 @@ export function validateDevLogEntry(
     ...(author !== undefined ? { author } : {}),
     ...(includedCommits !== undefined ? { includedCommits } : {}),
     ...(lifecycle !== undefined ? { lifecycle } : {}),
+    ...(compatibility !== undefined ? { compatibility } : {}),
+    ...(action !== undefined ? { action } : {}),
+    ...(deployment !== undefined ? { deployment } : {}),
   }
 }
 
@@ -634,4 +691,60 @@ export function nextCalendarVersion(
   if (monthDelta <= 0) return `${current.major}.${current.minor}.${current.patch + 1}`
   if (next.year > previous.year) return `${current.major + (next.year - previous.year)}.${next.month - 1}.1`
   return `${current.major}.${current.minor + monthDelta}.1`
+}
+
+function bradshawYearField(calendarYear: number, scheme: BradshawVersionScheme): number {
+  if (scheme.yearMode === 'calendar') return calendarYear
+  if (scheme.yearMode !== 'zero' && scheme.yearMode !== 'one') {
+    throw new Error(`Unknown Bradshaw year mode: ${String(scheme.yearMode)}`)
+  }
+  const originYear = Number(scheme.originYear)
+  if (!Number.isInteger(originYear) || originYear < 1) {
+    throw new Error('Bradshaw Versioning requires an integer originYear for zero- and one-based year modes.')
+  }
+  if (calendarYear < originYear) {
+    throw new Error(`Release year ${calendarYear} is before the project origin year ${originYear}.`)
+  }
+  return calendarYear - originYear + (scheme.yearMode === 'one' ? 1 : 0)
+}
+
+/**
+ * Returns the Bradshaw `YEAR.MONTH` period for a timestamp, using the scheme's time zone for
+ * calendar boundaries.
+ */
+export function getBradshawPeriod(
+  releaseAt: string | Date,
+  scheme: BradshawVersionScheme,
+): { year: number; month: number; calendarYear: number } {
+  const date = releaseAt instanceof Date ? releaseAt : new Date(releaseAt)
+  if (Number.isNaN(date.getTime())) throw new Error(`Invalid release timestamp: ${String(releaseAt)}`)
+  if (!cleanText(scheme?.timeZone)) throw new Error('Bradshaw Versioning requires an IANA timeZone.')
+  const { year: calendarYear, month } = calendarMonth(date, scheme.timeZone)
+  return { year: bradshawYearField(calendarYear, scheme), month, calendarYear }
+}
+
+/**
+ * Next Bradshaw Versioning `YEAR.MONTH.UPDATE` after `latestVersion`. UPDATE increments within the
+ * same YEAR.MONTH period and resets to 1 when the year or month changes. Throws if the result would
+ * not sort after `latestVersion`, which signals a clock problem or a legacy version namespace that
+ * needs explicit reconciliation.
+ */
+export function nextBradshawVersion(
+  latestVersion: string | null | undefined,
+  options: { releaseAt?: string | Date; scheme: BradshawVersionScheme },
+): string {
+  const period = getBradshawPeriod(options.releaseAt ?? new Date(), options.scheme)
+  const latest = cleanText(latestVersion)
+  if (!latest) return `${period.year}.${period.month}.1`
+  const match = SEMVER_RE.exec(latest)
+  if (!match) throw new Error(`Invalid three-part version: ${latest}`)
+  const next = Number(match[1]) === period.year && Number(match[2]) === period.month
+    ? `${period.year}.${period.month}.${Number(match[3]) + 1}`
+    : `${period.year}.${period.month}.1`
+  if (compareDevLogVersions(next, latest) <= 0) {
+    throw new Error(
+      `Next Bradshaw version ${next} would not sort after the latest version ${latest}; reconcile the registry explicitly.`,
+    )
+  }
+  return next
 }

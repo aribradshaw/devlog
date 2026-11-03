@@ -10,6 +10,17 @@ import {
   type DevLogAuthor,
   type DevLogEntry,
 } from './index'
+import { resolveDevLogDeployContext } from './deploy'
+
+export * from './deploy'
+export {
+  getBradshawPeriod,
+  nextBradshawVersion,
+  type BradshawVersionScheme,
+  type BradshawYearMode,
+  type DevLogCompatibility,
+  type DevLogDeployment,
+} from './index'
 
 export type DevLogAutomationConfig = {
   enabled?: boolean
@@ -122,18 +133,20 @@ export function resolveDevLogProductionContext(
   const authorName = cleanText(env.DEVLOG_AUTHOR_NAME)
   const authorLogin = cleanText(env.DEVLOG_AUTHOR_LOGIN)
   const rawMessage = String(context.subject || env.DEVLOG_COMMIT_SUBJECT
-    || env.VERCEL_GIT_COMMIT_MESSAGE || '')
+    || env.VERCEL_GIT_COMMIT_MESSAGE || env.RAILWAY_GIT_COMMIT_MESSAGE || '')
   const [messageSubject = '', ...messageBody] = rawMessage.split(/\r?\n/)
+  const deploy = resolveDevLogDeployContext(env)
   return {
     production: explicitProduction ?? providerProduction,
-    branch: cleanText(context.branch) || cleanText(env.DEVLOG_BRANCH) || cleanText(env.GITHUB_REF_NAME),
+    branch: cleanText(context.branch) || cleanText(env.DEVLOG_BRANCH) || cleanText(env.GITHUB_REF_NAME)
+      || deploy.branch,
     commit: (cleanText(context.commit) || cleanText(env.DEVLOG_COMMIT_SHA)
       || cleanText(env.GITHUB_SHA) || cleanText(env.VERCEL_GIT_COMMIT_SHA)
       || cleanText(env.RAILWAY_GIT_COMMIT_SHA)).toLowerCase(),
     subject: cleanText(messageSubject),
     body: cleanText(context.body) || cleanText(env.DEVLOG_COMMIT_BODY) || cleanText(messageBody.join('\n')),
     releasedAt,
-    author: context.author ?? (authorName ? { name: authorName, githubLogin: authorLogin || null } : null),
+    author: context.author ?? (authorName ? { name: authorName, githubLogin: authorLogin || null } : deploy.author),
   }
 }
 

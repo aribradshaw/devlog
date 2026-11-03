@@ -1,10 +1,12 @@
-# Bradshaw Versioning 1.0 (draft)
+# Bradshaw Versioning 1.0
 
 Author: Ari Bradshaw
 
-Status: Draft for review, not an implemented DevLog compatibility guarantee
+Status: Active convention, used in production projects. Implementation conformance is assessed separately.
 
-Draft date: October 12, 2026
+First published: October 12, 2026
+
+Status updated: November 2, 2026
 
 Bradshaw Versioning gives every production commit a permanent, chronological identity, with compatibility and deployment status made explicit.
 
@@ -47,7 +49,7 @@ Every new commit entering the designated production branch receives the next upd
 - A merge that introduces multiple previously unrecorded commits assigns each one a number, including the merge commit. Use a stable parent-before-child ordering and record that ordering in the registry.
 - A batch deployment identifies the version belonging to its deployed source commit. Intermediate assigned versions need not have been deployed individually.
 - A previously recorded commit is not counted again when merged or redeployed.
-- Generated metadata-only commits are still commits under this draft. Prefer storing generated release metadata outside the production source branch to avoid a numbering loop. An implementation that excludes such commits must disclose that deviation rather than claim strict conformance.
+- Generated metadata-only commits are still commits under this specification. Prefer storing generated release metadata outside the production source branch to avoid a numbering loop. An implementation that excludes such commits must disclose that deviation rather than claim strict conformance.
 
 Use the trusted production-branch admission time, not the author's commit date or the build completion time, to determine the calendar period. Process admission events in order. If an event arrives late after later versions have already been assigned, stop for explicit reconciliation instead of guessing or rewriting existing identities.
 
@@ -103,15 +105,15 @@ Public APIs and SDKs still need explicit compatibility contracts and may retain 
 
 ## 5. DevLog implementation status and adoption
 
-Bradshaw Versioning is an optional proposed convention, not a requirement for using DevLog. DevLog's presentation and release-history primitives remain usable with other schemes.
+Bradshaw Versioning is an active convention used in production projects. Adoption is optional, not a requirement for using DevLog. DevLog's presentation and release-history primitives remain usable with other schemes.
 
-This publication changes documentation only. It does not add a Bradshaw configuration option, change `nextCalendarVersion`, migrate host applications, or publish a new npm package release.
+This status update changes documentation only. It does not add a Bradshaw configuration option, change `nextCalendarVersion`, migrate host applications, or publish a new npm package release.
 
-The existing helper and automation are not a complete implementation of this draft:
+Active use of the convention does not imply that every DevLog helper or consumer implements every requirement. The implementation caveats recorded at the October 12, 2026 publication remain separate from the convention's active status:
 
-- Current helper tests show `1.0.6` becoming `1.1.1` across August to September and `1.4.8` becoming `2.0.1` across December to January. Those month semantics differ from this draft's calendar months `1` through `12`.
-- Current automation skips configured generated commit prefixes, including `chore(release):`, unlike the strict every-production-commit rule here.
-- Atomic replacement of individual files alone does not establish the durable cross-process assignment coordinator required by this draft.
+- The helper tests documented at publication show `1.0.6` becoming `1.1.1` across August to September and `1.4.8` becoming `2.0.1` across December to January. Those month semantics differ from this specification's calendar months `1` through `12`.
+- The automation documented at publication skips configured generated commit prefixes, including `chore(release):`, unlike the strict every-production-commit rule here.
+- Atomic replacement of individual files alone does not establish the durable cross-process assignment coordinator required by this specification.
 - Build-time recording of a source commit alone does not establish numbering of every admitted commit in a multi-commit push.
 
 Before implementing or migrating a consumer:
@@ -123,7 +125,7 @@ Before implementing or migrating a consumer:
 5. Test monthly and January rollover, timezone boundaries, inactive months, batch pushes, merge ordering, retries, concurrency, failures, and rollback identity.
 6. Verify separately that the live environment exposes the correct version and artifact. Only then claim that consumer's implementation conforms.
 
-The draft should stabilize before a supported implementation is released. Any later change to these rules should be recorded as a specification revision, with migration guidance where behavior changes.
+Implementations must document their conformance and any deviations independently of the convention's active status. Any later change to these rules should be recorded as a specification revision, with migration guidance where behavior changes.
 
 ## References
 

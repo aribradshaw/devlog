@@ -14,7 +14,10 @@ It is a calendar-based release convention for continuously shipped software, inc
 
 ## 1. Version format and calendar
 
-The format is `YEAR.MONTH.UPDATE`. All fields are integers without leading zeros. The month is `1` through `12`; the update starts at `1` each month.
+The format is `YEAR.MONTH.UPDATE`. All fields are integers without leading zeros. The update starts at `1` each month. Each project declares one month mode:
+
+- **Calendar month:** the month is `1` through `12`.
+- **Project-relative month:** the month counts from the project's origin month, which is `0`, and resets to `0` each January. A project that starts in August 2026 uses month `0` for August, `3` for November and `0` again for January 2027.
 
 Each project declares one year mode:
 
@@ -111,11 +114,11 @@ This status update changes documentation only. It does not add a Bradshaw config
 
 Active use of the convention does not imply that every DevLog helper or consumer implements every requirement. The implementation caveats recorded at the October 12, 2026 publication remain separate from the convention's active status:
 
-- The helper tests documented at publication show `1.0.6` becoming `1.1.1` across August to September and `1.4.8` becoming `2.0.1` across December to January. Those month semantics differ from this specification's calendar months `1` through `12`.
+- `nextCalendarVersion` implements project-relative months: its tests show `1.0.6` becoming `1.1.1` across August to September and `1.4.8` becoming `2.0.1` across December to January. `nextBradshawVersion` implements calendar months.
 - The automation documented at publication skips configured generated commit prefixes, including `chore(release):`, unlike the strict every-production-commit rule here.
 - Atomic replacement of individual files alone does not establish the durable cross-process assignment coordinator required by this specification.
 - Build-time recording of a source commit alone does not establish numbering of every admitted commit in a multi-commit push.
-- DevLog 1.11.1 adds `nextBradshawVersion` and a deploy-time recorder (`recordDeployRelease`) that allocate `YEAR.MONTH.UPDATE` through a store with unique version and commit constraints. By owner decision it assigns one version per successful deploy and lists that deploy's commits on the release, rather than numbering every admitted commit, and it omits configured generated-commit prefixes from release notes. Those are disclosed deviations from section 2.
+- DevLog 1.3.1 adds `nextBradshawVersion` and a deploy-time recorder (`recordDeployRelease`) that allocate `YEAR.MONTH.UPDATE` through a store with unique version and commit constraints. By owner decision it assigns one version per successful deploy and lists that deploy's commits on the release, rather than numbering every admitted commit, and it omits configured generated-commit prefixes from release notes. Those are disclosed deviations from section 2.
 
 Before implementing or migrating a consumer:
 

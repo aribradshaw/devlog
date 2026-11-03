@@ -19,7 +19,7 @@ The package owns portable logic. Each host keeps full control of:
 
 ## Versioning
 
-This package is itself versioned with [Bradshaw Versioning](docs/bradshaw-versioning.md): `YEAR.MONTH.UPDATE` with a one-based project year from 2026 (2026 is year `1`), calendar months, and the America/Phoenix timezone. `1.11.1` is the first release of November 2026. The numbers are calendar identities, not SemVer: pin an exact version (or review the release notes) rather than relying on a caret range for compatibility. Versions `1.0.0` to `1.0.4` predate the convention.
+This package is itself versioned with [Bradshaw Versioning](docs/bradshaw-versioning.md): `YEAR.MONTH.UPDATE` with a one-based project year from 2026 (2026 is year `1`), project-relative months from August 2026 (August is month `0`, resetting to `0` each January), and the America/Phoenix timezone, as computed by `nextCalendarVersion`. `1.3.1` is the first release of November 2026. The numbers are calendar identities, not SemVer: pin an exact version (or review the release notes) rather than relying on a caret range for compatibility.
 
 ## Install
 
@@ -31,7 +31,7 @@ npm install @aribradshaw/devlog
 
 [Bradshaw Versioning 1.0 specification](https://github.com/aribradshaw/devlog/blob/main/docs/bradshaw-versioning.md) defines a permanent `YEAR.MONTH.UPDATE` identity for every production commit, with compatibility and deployment status recorded separately. It builds on [Calendar Versioning (CalVer)](https://calver.org/) for continuously shipped, AI-assisted software.
 
-The active convention is used in production projects and allows zero-based or one-based project years, or full calendar years; it uses calendar months `1` through `12`. DevLog remains versioning-scheme agnostic. Since 1.11.1, `nextBradshawVersion` and the deploy-time recorder below implement the `YEAR.MONTH.UPDATE` numbering; the older `nextCalendarVersion` helper is unchanged. Existing consumers must not migrate implicitly. See the specification's implementation status and migration requirements before adopting it.
+The active convention is used in production projects and allows zero-based or one-based project years, or full calendar years; months are calendar months `1` through `12` or project-relative months that reset each January. DevLog remains versioning-scheme agnostic. Since 1.3.1, `nextBradshawVersion` and the deploy-time recorder below implement the `YEAR.MONTH.UPDATE` numbering; the older `nextCalendarVersion` helper is unchanged. Existing consumers must not migrate implicitly. See the specification's implementation status and migration requirements before adopting it.
 
 ```ts
 import { nextBradshawVersion } from '@aribradshaw/devlog'

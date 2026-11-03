@@ -115,7 +115,7 @@ Active use of the convention does not imply that every DevLog helper or consumer
 - The automation documented at publication skips configured generated commit prefixes, including `chore(release):`, unlike the strict every-production-commit rule here.
 - Atomic replacement of individual files alone does not establish the durable cross-process assignment coordinator required by this specification.
 - Build-time recording of a source commit alone does not establish numbering of every admitted commit in a multi-commit push.
-- DevLog 1.1.0 adds `nextBradshawVersion` and a deploy-time recorder (`recordDeployRelease`) that allocate `YEAR.MONTH.UPDATE` through a store with unique version and commit constraints. By owner decision it assigns one version per successful deploy and lists that deploy's commits on the release, rather than numbering every admitted commit, and it omits configured generated-commit prefixes from release notes. Those are disclosed deviations from section 2.
+- DevLog 1.11.1 adds `nextBradshawVersion` and a deploy-time recorder (`recordDeployRelease`) that allocate `YEAR.MONTH.UPDATE` through a store with unique version and commit constraints. By owner decision it assigns one version per successful deploy and lists that deploy's commits on the release, rather than numbering every admitted commit, and it omits configured generated-commit prefixes from release notes. Those are disclosed deviations from section 2.
 
 Before implementing or migrating a consumer:
 
